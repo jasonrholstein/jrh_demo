@@ -2,63 +2,82 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Set page title and layout
-st.set_page_config(page_title="Investment Growth Simulator", layout="centered")
+st.set_page_config(page_title="Investment Risk Simulator", layout="centered")
 
-def plot_model(investment, years, growth_rate, crash_year, crash_drop):
-    # 1. Generate the timeline (Year 0 to Year X)
+def run_simulation(investment, years, growth_rate, crash_year, crash_drop):
     time = np.arange(0, years + 1)
     
-    # 2. Calculate values with compound growth
-    # We use a loop or vectorized math to ensure the crash affects the trajectory
-    values = []
-    current_value = investment
+    # Calculate No-Crash Baseline
+    no_crash_values = investment * (1 + growth_rate) ** time
+    
+    # Calculate Actual (with Crash)
+    actual_values = []
+    current_val = investment
+    peak_before_crash = 0
+    recoup_year = None
+
     for yr in time:
-        if yr == 0:
-            values.append(current_value)
-        else:
-            current_value *= (1 + growth_rate)
-            # Apply the crash impact only at the specific year selected
+        if yr > 0:
+            current_val *= (1 + growth_rate)
             if yr == crash_year:
-                current_value *= (1 - crash_drop)
-            values.append(current_value)
+                peak_before_crash = actual_values[-1] # Value just before crash
+                current_val *= (1 - crash_drop)
+        
+        actual_values.append(current_val)
+        
+        # Check if we've recouped the loss (surpassed the pre-crash peak)
+        if peak_before_crash > 0 and recoup_year is None and current_val >= peak_before_crash:
+            recoup_year = yr
 
-    # 3. Create the visualization
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(time, values, marker='o', linestyle='-', color='#2ca02c', linewidth=2)
-    
-    # Add a vertical red line to highlight the crash year visually
-    if 0 < crash_year <= years:
-        ax.axvline(x=crash_year, color='red', linestyle='--', alpha=0.5, label=f"Market Crash (Yr {crash_year})")
-        ax.legend()
-
-    ax.set_title(f"Projected Growth over {years} Years", fontsize=16)
-    ax.set_xlabel("Years", fontsize=12)
-    ax.set_ylabel("Value ($)", fontsize=12)
-    ax.grid(True, linestyle='--', alpha=0.7)
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: f"${x:,.0f}"))
-    
-    return fig, values[-1]
+    return time, no_crash_values, actual_values, recoup_year
 
 # --- Web Interface ---
-st.title("📈 Family Investment Simulator")
-st.write("Adjust the sliders to see how your money grows and how market volatility affects it.")
+st.title("📉 Investment Loss & Recovery Simulator")
+st.write("Compare your actual projected growth against a 'No-Crash' scenario.")
 
-# User inputs based on your notebook sliders
-st.sidebar.header("Simulation Settings")
-inv = st.sidebar.slider("Initial Investment ($)", 100, 10000, 1000, 100)
-yrs = st.sidebar.slider("Number of Years", 5, 60, 30)
-rate = st.sidebar.slider("Annual Growth Rate (%)", 0.0, 30.0, 10.0, 0.5) / 100
-c_yr = st.sidebar.slider("Market Crash Year", 1, 60, 15)
-c_drop = st.sidebar.slider("Crash Impact (Drop %)", 0, 90, 25) / 100
+st.sidebar.header("Parameters")
+inv = st.sidebar.slider("Initial Investment ($)", 100, 10000, 1000)
+yrs = st.sidebar.slider("Timeline (Years)", 5, 60, 30)
+rate = st.sidebar.slider("Avg. Annual Growth (%)", 0.0, 30.0, 10.0) / 100
+c_yr = st.sidebar.slider("Year of Market Crash", 1, yrs, 15)
+c_drop = st.sidebar.slider("Crash Severity (%)", 0, 90, 25) / 100
 
-# Run the updated model
-figure, final_val = plot_model(inv, yrs, rate, c_yr, c_drop)
+# Run logic
+time, baseline, actual, recoup_yr = run_simulation(inv, yrs, rate, c_yr, c_drop)
 
-# Display the chart
-st.pyplot(figure)
+# --- Visualization ---
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.plot(time, baseline, label="No-Crash Baseline", color='grey', linestyle='--', alpha=0.6)
+ax.plot(time, actual, label="Actual (With Crash)", color='#2ca02c', linewidth=2.5)
 
-# Display Summary Metrics
-col1, col2 = st.columns(2)
-col1.metric("Initial Investment", f"${inv:,.0f}")
-col2.metric("Estimated Final Value", f"${final_val:,.2f}")
+if c_yr <= yrs:
+    ax.scatter(c_yr, actual[c_yr], color='red', zorder=5, label="Crash Event")
+
+ax.set_title("Potential Gain vs. Actual Growth", fontsize=14)
+ax.set_ylabel("Account Value ($)")
+ax.set_xlabel("Years")
+ax.legend()
+ax.grid(True, alpha=0.3)
+ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+
+st.pyplot(fig)
+
+# --- Impact Analysis Summary ---
+st.subheader("📊 Crash Impact Analysis")
+
+final_actual = actual[-1]
+final_baseline = baseline[-1]
+total_loss = final_baseline - final_actual
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Final Value", f"${final_actual:,.2f}")
+with col2:
+    st.metric("Lost Potential", f"-${total_loss:,.2f}", delta_color="inverse")
+with col3:
+    recovery_text = f"{recoup_yr - c_yr} Years" if recoup_yr else "Never"
+    st.metric("Time to Recoup", recovery_text)
+
+st.info(f"**Note:** A {c_drop*100:.0f}% crash in year {c_yr} requires your investment to grow back to its previous peak of ${actual[c_yr-1]:,.2f}. "
+        f"In this scenario, it takes **{recovery_text}** just to get back to where you were before the drop.")
