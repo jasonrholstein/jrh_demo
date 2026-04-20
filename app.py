@@ -42,8 +42,8 @@ def run_simulation(investment, years, growth_rate, crash_year, crash_drop):
 
 # --- Sidebar Controls ---
 st.sidebar.header("Investment Parameters")
-inv = st.sidebar.slider("Initial Investment ($)", 100, 10000, 1000, 100)
-yrs = st.sidebar.slider("Timeline (Years)", 5, 60, 30)
+inv = st.sidebar.slider("Initial Investment ($)", 1000, 10000, 1000, 1000)
+yrs = st.sidebar.slider("Timeline (Years)", 5, 30, 10)
 rate = st.sidebar.slider("Annual Growth Rate (%)", 0.0, 30.0, 10.0, 0.5) / 100
 
 st.sidebar.header("Crash Scenario")
