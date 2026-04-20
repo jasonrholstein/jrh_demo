@@ -6,11 +6,8 @@ st.set_page_config(page_title="Investment Risk Simulator", layout="centered")
 
 def run_simulation(investment, years, growth_rate, crash_year, crash_drop):
     time = np.arange(0, years + 1)
+    baseline = investment * (1 + growth_rate) ** time
     
-    # Calculate No-Crash Baseline
-    no_crash_values = investment * (1 + growth_rate) ** time
-    
-    # Calculate Actual (with Crash)
     actual_values = []
     current_val = investment
     peak_before_crash = 0
@@ -20,21 +17,18 @@ def run_simulation(investment, years, growth_rate, crash_year, crash_drop):
         if yr > 0:
             current_val *= (1 + growth_rate)
             if yr == crash_year:
-                peak_before_crash = actual_values[-1] # Value just before crash
+                peak_before_crash = actual_values[-1] # This is our "Waterline"
                 current_val *= (1 - crash_drop)
         
         actual_values.append(current_val)
         
-        # Check if we've recouped the loss (surpassed the pre-crash peak)
         if peak_before_crash > 0 and recoup_year is None and current_val >= peak_before_crash:
             recoup_year = yr
 
-    return time, no_crash_values, actual_values, recoup_year
+    return time, baseline, actual_values, recoup_year, peak_before_crash
 
-# --- Web Interface ---
-st.title("📉 Investment Loss & Recovery Simulator")
-st.write("Compare your actual projected growth against a 'No-Crash' scenario.")
-
+# --- UI Setup ---
+st.title("📈 Investment Recovery Tracker")
 st.sidebar.header("Parameters")
 inv = st.sidebar.slider("Initial Investment ($)", 100, 10000, 1000)
 yrs = st.sidebar.slider("Timeline (Years)", 5, 60, 30)
@@ -42,42 +36,47 @@ rate = st.sidebar.slider("Avg. Annual Growth (%)", 0.0, 30.0, 10.0) / 100
 c_yr = st.sidebar.slider("Year of Market Crash", 1, yrs, 15)
 c_drop = st.sidebar.slider("Crash Severity (%)", 0, 90, 25) / 100
 
-# Run logic
-time, baseline, actual, recoup_yr = run_simulation(inv, yrs, rate, c_yr, c_drop)
+time, baseline, actual, recoup_yr, peak_val = run_simulation(inv, yrs, rate, c_yr, c_drop)
 
-# --- Visualization ---
+# --- Enhanced Graphing ---
 fig, ax = plt.subplots(figsize=(10, 6))
-ax.plot(time, baseline, label="No-Crash Baseline", color='grey', linestyle='--', alpha=0.6)
-ax.plot(time, actual, label="Actual (With Crash)", color='#2ca02c', linewidth=2.5)
 
-if c_yr <= yrs:
-    ax.scatter(c_yr, actual[c_yr], color='red', zorder=5, label="Crash Event")
+# Plot the lines
+ax.plot(time, baseline, label="No-Crash Baseline", color='grey', linestyle='--', alpha=0.4)
+ax.plot(time, actual, label="Actual Growth (with Crash)", color='#2ca02c', linewidth=2.5)
 
-ax.set_title("Potential Gain vs. Actual Growth", fontsize=14)
+# Add the Dark Red Recoup Line
+if peak_val > 0:
+    ax.axhline(y=peak_val, color='darkred', linestyle='-', linewidth=1.5, label="Pre-Crash Peak (Recoup Level)")
+    
+    # Optional: Highlight the intersection point
+    if recoup_yr:
+        ax.annotate(f'Recouped in Yr {recoup_yr}', 
+                    xy=(recoup_yr, peak_val), 
+                    xytext=(recoup_yr + 2, peak_val * 1.1),
+                    arrowprops=dict(facecolor='black', shrink=0.05, width=1, headwidth=5))
+
+ax.set_title("How Long to Get Back to Even?", fontsize=14)
 ax.set_ylabel("Account Value ($)")
 ax.set_xlabel("Years")
 ax.legend()
-ax.grid(True, alpha=0.3)
+ax.grid(True, alpha=0.2)
 ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
 
 st.pyplot(fig)
 
-# --- Impact Analysis Summary ---
-st.subheader("📊 Crash Impact Analysis")
-
-final_actual = actual[-1]
-final_baseline = baseline[-1]
-total_loss = final_baseline - final_actual
-
-col1, col2, col3 = st.columns(3)
+# --- Impact Summary ---
+st.subheader("📊 Recovery Metrics")
+col1, col2 = st.columns(2)
 
 with col1:
-    st.metric("Final Value", f"${final_actual:,.2f}")
-with col2:
-    st.metric("Lost Potential", f"-${total_loss:,.2f}", delta_color="inverse")
-with col3:
-    recovery_text = f"{recoup_yr - c_yr} Years" if recoup_yr else "Never"
-    st.metric("Time to Recoup", recovery_text)
+    st.metric("Pre-Crash Peak", f"${peak_val:,.2f}")
+    st.write(f"This is the 'High Water Mark' you hit in Year {c_yr-1}.")
 
-st.info(f"**Note:** A {c_drop*100:.0f}% crash in year {c_yr} requires your investment to grow back to its previous peak of ${actual[c_yr-1]:,.2f}. "
-        f"In this scenario, it takes **{recovery_text}** just to get back to where you were before the drop.")
+with col2:
+    years_to_wait = recoup_yr - c_yr if recoup_yr else (yrs - c_yr)
+    status = "Recouped ✅" if recoup_yr else "Still Below Peak ❌"
+    st.metric("Recovery Status", status, delta=f"{years_to_wait} yrs to break even" if recoup_yr else "Incomplete")
+
+if not recoup_yr:
+    st.warning(f"Based on a {rate*100:.1f}% growth rate, {yrs} years isn't enough time to recover the ${peak_val - actual[c_yr]:,.2f} lost in the crash.")
